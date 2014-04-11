@@ -181,11 +181,16 @@
     // so to make them take effect you'll have to clear the cache first. The
     // default keybinding for clearing the cache is alt+d,alt+c.
     //
-    // ${home}, ${env:<variable>}, ${project_path:} and ${folder:} tokens can be used in these options.
+    // ${home}, ${env:<variable>}, ${project_path}, ${project_path:} and ${folder:} tokens can be
+    // used in these options.
     //
     // ${home} is replaced with the value of the HOME environment variable.
     //
     // ${env:<variable>} is replaced with the "variable" environment variable.
+    //
+    // ${project_path} returns the directory of the project for the current file or current window. In
+    // Sublime Text 2 where no associated project information available, the first folder containing a
+    // sublime-project file opened will be chosen.
     //
     // ${project_path:} tries to find a file with the given name in all the registered project folders and
     // returns the first file found, or the original file name if none is found.
@@ -268,6 +273,7 @@
         "-isystem", "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.7.sdk/usr/include/",
         "-isystem", "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.7.sdk/usr/include/c++/4.2.1",
         "-F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.7.sdk/System/Library/Frameworks/",
+        "-Wno-deprecated-declarations",
         "-isystem", "C:\\MinGW\\lib\\gcc\\mingw32\\4.7.0\\include",
         "-isystem", "C:\\MinGW\\lib\\gcc\\mingw32\\4.7.0\\include\\c++",
         "-isystem", "C:\\MinGW\\lib\\gcc\\mingw32\\4.7.0\\include\\c++\\mingw32",

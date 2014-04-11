@@ -29,26 +29,42 @@ Unfortunately ctypes can't be imported, so SublimeClang will not work.
 
 There is a work around for this to get it to work, \
 please see http://www.github.com/quarnster/SublimeClang for more details. """)
+import os
+import sys
 
-from clang import cindex
+try:
+    import Queue
+    from internals.clang import cindex
+    from errormarkers import clear_error_marks, add_error_mark, show_error_marks, \
+                             update_statusbar, erase_error_marks, clang_error_panel
+    from internals.common import get_setting, get_settings, is_supported_language, \
+                                    get_language,get_cpu_count, run_in_main_thread, \
+                                    status_message, sencode, are_we_there_yet, plugin_loaded
+    from internals import translationunitcache
+    from internals.parsehelp import parsehelp
+    plugin_loaded()
+except ImportError:
+    import queue as Queue
+    from .internals.clang import cindex
+    from .errormarkers import clear_error_marks, add_error_mark, show_error_marks, \
+                             update_statusbar, erase_error_marks, clang_error_panel
+    from .internals.common import get_setting, get_settings, is_supported_language, \
+                                    get_language,get_cpu_count, run_in_main_thread, \
+                                    status_message, sencode, are_we_there_yet, plugin_loaded
+    from .internals import translationunitcache
+    from .internals.parsehelp import parsehelp
+
 import sublime_plugin
 from sublime import Region
 import sublime
-import os
 import re
 import threading
 import time
-from errormarkers import clear_error_marks, add_error_mark, show_error_marks, \
-                         update_statusbar, erase_error_marks, clang_error_panel
-from common import get_setting, get_settings, is_supported_language, get_language, get_cpu_count, run_in_main_thread, status_message
-import translationunitcache
-from parsehelp import parsehelp
-import Queue
 import traceback
 
 def warm_up_cache(view, filename=None):
     if filename == None:
-        filename = view.file_name().encode("utf-8")
+        filename = sencode(view.file_name())
     stat = translationunitcache.tuCache.get_status(filename)
     if stat == translationunitcache.TranslationUnitCache.STATUS_NOT_IN_CACHE:
         translationunitcache.tuCache.add(view, filename)
@@ -57,7 +73,7 @@ def warm_up_cache(view, filename=None):
 
 def get_translation_unit(view, filename=None, blocking=False):
     if filename == None:
-        filename = view.file_name().encode("utf-8")
+        filename = sencode(view.file_name())
     if get_setting("warm_up_in_separate_thread", True, view) and not blocking:
         stat = warm_up_cache(view, filename)
         if stat == translationunitcache.TranslationUnitCache.STATUS_NOT_IN_CACHE:
@@ -120,7 +136,7 @@ class ClangGoBackEventListener(sublime_plugin.EventListener):
         fn = view.file_name()
         if fn == None:
             return
-        fn = fn.encode("utf-8")
+        fn = sencode(fn)
         while True:
             if len(navigation_stack) == 0 or \
                     not navigation_stack[
@@ -144,7 +160,7 @@ class ClangGoBack(sublime_plugin.TextCommand):
 
 def format_current_file(view):
     row, col = view.rowcol(view.sel()[0].a)
-    return "%s:%d:%d" % (view.file_name().encode("utf-8"), row + 1, col + 1)
+    return "%s:%d:%d" % (sencode(view.file_name()), row + 1, col + 1)
 
 
 def open(view, target):
@@ -214,9 +230,9 @@ class ClangReparse(sublime_plugin.TextCommand):
         view = self.view
         unsaved_files = []
         if view.is_dirty():
-            unsaved_files.append((view.file_name().encode("utf-8"),
+            unsaved_files.append((sencode(view.file_name()),
                           view.substr(Region(0, view.size()))))
-        translationunitcache.tuCache.reparse(view, view.file_name().encode("utf-8"), unsaved_files)
+        translationunitcache.tuCache.reparse(view, sencode(view.file_name()), unsaved_files)
 
 
 def ignore_diagnostic(path, ignoreDirs):
@@ -328,8 +344,19 @@ def is_member_completion(view, caret):
 
 class ClangComplete(sublime_plugin.TextCommand):
     def run(self, edit, characters):
-        for region in self.view.sel():
-            self.view.insert(edit, region.end(), characters)
+        regions = [a for a in self.view.sel()]
+        self.view.sel().clear()
+        for region in reversed(regions):
+            pos = 0
+            region.end() + len(characters)
+            if region.size() > 0:
+                self.view.replace(edit, region, characters)
+                pos = region.begin() + len(characters)
+            else:
+                self.view.insert(edit, region.end(), characters)
+                pos = region.end() + len(characters)
+
+            self.view.sel().add(sublime.Region(pos, pos))
         caret = self.view.sel()[0].begin()
         line = self.view.substr(sublime.Region(self.view.word(caret-1).a, caret))
         if is_member_completion(self.view, caret) or line.endswith("::") or re.search("(^|\W)new\s+\w*$", line):
@@ -345,7 +372,7 @@ class SublimeClangAutoComplete(sublime_plugin.EventListener):
         s = get_settings()
         s.clear_on_change("options")
         s.add_on_change("options", self.load_settings)
-        self.load_settings()
+        are_we_there_yet(lambda: self.load_settings())
         self.recompile_timer = None
         self.not_code_regex = re.compile("(string.)|(comment.)")
 
@@ -412,16 +439,16 @@ class SublimeClangAutoComplete(sublime_plugin.EventListener):
                 except:
                     traceback.print_exc()
             if cached_results != None:
-                print "found fast completions"
+                # print("found fast completions")
                 ret = cached_results
             else:
-                print "doing slow completions"
+                # print("doing slow completions")
                 row, col = view.rowcol(locations[0] - len(prefix))
                 unsaved_files = []
                 if view.is_dirty():
-                    unsaved_files.append((view.file_name().encode("utf-8"),
+                    unsaved_files.append((sencode(view.file_name()),
                                       view.substr(Region(0, view.size()))))
-                ret = tu.cache.clangcomplete(view.file_name().encode("utf-8"), row+1, col+1, unsaved_files, is_member_completion(view, locations[0] - len(prefix)))
+                ret = tu.cache.clangcomplete(sencode(view.file_name()), row+1, col+1, unsaved_files, is_member_completion(view, locations[0] - len(prefix)))
             if self.time_completions:
                 curr = (time.time() - start)*1000
                 tot += curr
@@ -448,7 +475,7 @@ class SublimeClangAutoComplete(sublime_plugin.EventListener):
                 tot += curr
                 timing += ", Filter: %f" % (curr)
                 timing += ", Tot: %f ms" % (tot)
-                print timing
+                print(timing)
                 sublime.status_message(timing)
         finally:
             tu.unlock()
@@ -471,9 +498,9 @@ class SublimeClangAutoComplete(sublime_plugin.EventListener):
         view = self.view
         unsaved_files = []
         if view.is_dirty() and get_setting("reparse_use_dirty_buffer", False, view):
-            unsaved_files.append((view.file_name().encode("utf-8"),
+            unsaved_files.append((sencode(view.file_name()),
                                   view.substr(Region(0, view.size()))))
-        if not translationunitcache.tuCache.reparse(view, view.file_name().encode("utf-8"), unsaved_files,
+        if not translationunitcache.tuCache.reparse(view, sencode(view.file_name()), unsaved_files,
                         self.reparse_done):
 
             # Already parsing so retry in a bit
@@ -502,7 +529,7 @@ class SublimeClangAutoComplete(sublime_plugin.EventListener):
 
     def on_close(self, view):
         if self.remove_on_close and is_supported_language(view):
-            translationunitcache.tuCache.remove(view.file_name().encode("utf-8"))
+            translationunitcache.tuCache.remove(sencode(view.file_name()))
 
     def on_query_context(self, view, key, operator, operand, match_all):
         if key == "clang_supported_language":

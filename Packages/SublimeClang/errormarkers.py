@@ -1,7 +1,11 @@
 import sublime
 import sublime_plugin
 from collections import defaultdict
-from common import get_setting
+try:
+    from .internals.common import get_setting, sdecode, sencode
+except:
+    from internals.common import get_setting, sdecode, sencode
+
 
 ERRORS = {}
 WARNINGS = {}
@@ -14,7 +18,7 @@ clang_view = None
 class ClangNext(sublime_plugin.TextCommand):
     def run(self, edit):
         v = self.view
-        fn = v.file_name().encode("utf-8")
+        fn = sencode(v.file_name())
         line, column = v.rowcol(v.sel()[0].a)
         gotoline = -1
         if fn in ERRORS:
@@ -37,7 +41,7 @@ class ClangNext(sublime_plugin.TextCommand):
 class ClangPrevious(sublime_plugin.TextCommand):
     def run(self, edit):
         v = self.view
-        fn = v.file_name().encode("utf-8")
+        fn = sencode(v.file_name())
         line, column = v.rowcol(v.sel()[0].a)
         gotoline = -1
         if fn in ERRORS:
@@ -55,13 +59,18 @@ class ClangPrevious(sublime_plugin.TextCommand):
             sublime.status_message("No more errors or warnings!")
 
 
+class ClangErrorPanelFlush(sublime_plugin.TextCommand):
+    def run(self, edit, data):
+        self.view.erase(edit, sublime.Region(0, self.view.size()))
+        self.view.insert(edit, 0, data)
+
 class ClangErrorPanel(object):
     def __init__(self):
         self.view = None
         self.data = ""
 
     def set_data(self, data):
-        self.data = data.decode("utf-8")
+        self.data = sdecode(data)
         if get_setting("update_output_panel", True) and self.is_visible():
             self.flush()
 
@@ -80,10 +89,7 @@ class ClangErrorPanel(object):
     def flush(self):
         self.view.set_read_only(False)
         self.view.set_scratch(True)
-        e = self.view.begin_edit()
-        self.view.erase(e, sublime.Region(0, self.view.size()))
-        self.view.insert(e, 0, self.data)
-        self.view.end_edit(e)
+        self.view.run_command("clang_error_panel_flush", {"data": self.data})
         self.view.set_read_only(True)
 
     def open(self, window=None):
@@ -95,7 +101,7 @@ class ClangErrorPanel(object):
             if get_setting("output_panel_use_syntax_file", False):
                 fileName = get_setting("output_panel_syntax_file", None)
                 if fileName is not None:
-                    self.view.set_syntax_file(fileName)            
+                    self.view.set_syntax_file(fileName)
         self.flush()
 
         window.run_command("show_panel", {"panel": "output.clang"})
@@ -144,7 +150,7 @@ def show_error_marks(view):
     fill_outlines = False
     gutter_mark = 'dot'
     outlines = {'warning': [], 'illegal': []}
-    fn = view.file_name().encode("utf-8")
+    fn = sencode(view.file_name())
     markers = {'warning':  get_setting("marker_warning_scope", "comment"),
                 'illegal': get_setting("marker_error_scope", "invalid")
                 }
@@ -180,7 +186,7 @@ def last_selected_lineno(view):
 def update_statusbar(view):
     fn = view.file_name()
     if fn is not None:
-        fn = fn.encode("utf-8")
+        fn = sencode(fn)
     lineno = last_selected_lineno(view)
 
     if fn in ERRORS and lineno in ERRORS[fn]:
@@ -220,7 +226,7 @@ class SublimeClangStatusbarUpdater(sublime_plugin.EventListener):
         fn = view.file_name()
         if fn is None:
             return False
-        return fn.encode("utf-8") in ERRORS or fn in WARNINGS
+        return sencode(fn) in ERRORS or fn in WARNINGS
 
     def show_errors(self, view):
         if self.has_errors(view) and not get_setting("error_marks_on_panel_only", False, view):
